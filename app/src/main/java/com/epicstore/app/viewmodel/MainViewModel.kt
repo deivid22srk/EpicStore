@@ -1,6 +1,7 @@
 package com.epicstore.app.viewmodel
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epicstore.app.auth.EpicAuthManager
@@ -19,29 +20,41 @@ data class UiState(
 
 class MainViewModel : ViewModel() {
     
+    companion object {
+        private const val TAG = "MainViewModel"
+    }
+    
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     
     fun loadGames(context: Context) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            
-            val authManager = EpicAuthManager(context)
-            val repository = EpicGamesRepository(authManager)
-            
-            val result = repository.getLibraryGames()
-            
-            if (result.isSuccess) {
-                val games = result.getOrNull() ?: emptyList()
+            try {
+                _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                
+                val authManager = EpicAuthManager(context)
+                val repository = EpicGamesRepository(authManager)
+                
+                val result = repository.getLibraryGames()
+                
+                if (result.isSuccess) {
+                    val games = result.getOrNull() ?: emptyList()
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        games = games,
+                        error = null
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = result.exceptionOrNull()?.message ?: "Unknown error"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading games", e)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    games = games,
-                    error = null
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = result.exceptionOrNull()?.message ?: "Unknown error"
+                    error = e.message ?: "Unknown error"
                 )
             }
         }

@@ -2,6 +2,7 @@ package com.epicstore.app.auth
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.epicstore.app.model.EpicAuthResponse
@@ -15,6 +16,7 @@ import java.util.concurrent.TimeUnit
 class EpicAuthManager(private val context: Context) {
     
     companion object {
+        private const val TAG = "EpicAuthManager"
         private const val CLIENT_ID = "34a02cf8f4414e29b15921876da36f9a"
         private const val CLIENT_SECRET = "daafbccc237768a039fe8bcc4c563da8"
         private const val AUTHORIZATION_BASE_URL = "https://www.epicgames.com/id/authorize"
@@ -28,17 +30,24 @@ class EpicAuthManager(private val context: Context) {
         private const val KEY_EXPIRES_AT = "expires_at"
     }
     
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-    
-    private val sharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val sharedPreferences by lazy {
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating EncryptedSharedPreferences, using regular SharedPreferences", e)
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+    }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
@@ -86,6 +95,7 @@ class EpicAuthManager(private val context: Context) {
                 Result.failure(Exception("Failed to get access token: ${response.code()} - ${response.message()}"))
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Error exchanging code for token", e)
             Result.failure(e)
         }
     }
@@ -108,40 +118,69 @@ class EpicAuthManager(private val context: Context) {
                 Result.failure(Exception("Failed to refresh token: ${response.code()}"))
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Error refreshing token", e)
             clearAuthData()
             Result.failure(e)
         }
     }
     
     private fun saveAuthData(authResponse: EpicAuthResponse) {
-        sharedPreferences.edit().apply {
-            putString(KEY_ACCESS_TOKEN, authResponse.accessToken)
-            authResponse.refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
-            authResponse.accountId?.let { putString(KEY_ACCOUNT_ID, it) }
-            putLong(KEY_EXPIRES_AT, System.currentTimeMillis() + (authResponse.expiresIn * 1000L))
-            apply()
+        try {
+            sharedPreferences.edit().apply {
+                putString(KEY_ACCESS_TOKEN, authResponse.accessToken)
+                authResponse.refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
+                authResponse.accountId?.let { putString(KEY_ACCOUNT_ID, it) }
+                putLong(KEY_EXPIRES_AT, System.currentTimeMillis() + (authResponse.expiresIn * 1000L))
+                apply()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving auth data", e)
         }
     }
     
     fun getAccessToken(): String? {
-        return sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+        return try {
+            sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting access token", e)
+            null
+        }
     }
     
     private fun getRefreshToken(): String? {
-        return sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
+        return try {
+            sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting refresh token", e)
+            null
+        }
     }
     
     fun getAccountId(): String? {
-        return sharedPreferences.getString(KEY_ACCOUNT_ID, null)
+        return try {
+            sharedPreferences.getString(KEY_ACCOUNT_ID, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting account ID", e)
+            null
+        }
     }
     
     fun isLoggedIn(): Boolean {
-        val token = getAccessToken()
-        val expiresAt = sharedPreferences.getLong(KEY_EXPIRES_AT, 0)
-        return token != null && System.currentTimeMillis() < expiresAt
+        return try {
+            val token = getAccessToken()
+            val expiresAt = sharedPreferences.getLong(KEY_EXPIRES_AT, 0)
+            token != null && System.currentTimeMillis() < expiresAt
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking login status", e)
+            false
+        }
     }
     
     fun clearAuthData() {
-        sharedPreferences.edit().clear().apply()
+        try {
+            sharedPreferences.edit().clear().apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing auth data", e)
+        }
     }
 }
