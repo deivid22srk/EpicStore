@@ -316,7 +316,8 @@ class DownloadService : Service() {
                     }
                     
                     processedFiles++
-                    resumeFile.appendText("${file.sha1Hash}:${file.filename}\n")
+                    val fileHash = file.hash.joinToString("") { "%02x".format(it) }
+                    resumeFile.appendText("$fileHash:${file.filename}\n")
                     
                     chunkCache.entries.removeIf { entry ->
                         !manifest.files.subList(processedFiles, manifest.files.size).any { f ->
