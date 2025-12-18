@@ -3,6 +3,7 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     
+    <color name="epic_blue">#0078F2</color>
     <color name="epic_primary">#0078F2</color>
     <color name="epic_secondary">#00A8E1</color>
     <color name="epic_tertiary">#8B5CF6</color>
