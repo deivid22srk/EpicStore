@@ -41,6 +41,14 @@ class EpicAuthManager(private val context: Context) {
     }
     
     private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val request = original.newBuilder()
+                .header("User-Agent", "UELauncher/14.0.8-22004686+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
+                .method(original.method, original.body)
+                .build()
+            chain.proceed(request)
+        }
         .addInterceptor(loggingInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
