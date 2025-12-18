@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Epic Store</string>
+    
+    <string name="welcome_title">Welcome to Epic Store</string>
+    <string name="welcome_subtitle">View and manage your Epic Games library</string>
+    <string name="login_with_epic">Login with Epic Games</string>
+    
+    <string name="epic_games_logo">Epic Games Logo</string>
+    <string name="game_icon">Game Icon</string>
+    <string name="empty_library">Empty Library</string>
+    <string name="view_details">View Details</string>
+    
+    <string name="no_games_found">No games found in your library</string>
+    <string name="login_success">Successfully logged in!</string>
+    <string name="login_failed">Login failed: %s</string>
+    <string name="auth_error">Authentication error: %s</string>
+    <string name="logged_out">Logged out successfully</string>
+    
+    <string name="action_logout">Logout</string>
+    <string name="action_refresh">Refresh</string>
+</resources>

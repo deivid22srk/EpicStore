@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Base.Theme.EpicStore" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/epic_primary</item>
+        <item name="colorSecondary">@color/epic_secondary</item>
+        <item name="colorTertiary">@color/epic_tertiary</item>
+        <item name="android:statusBarColor">@color/epic_primary</item>
+    </style>
+
+    <style name="Theme.EpicStore" parent="Base.Theme.EpicStore" />
+    
+    <style name="RoundedImageView">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+</resources>
