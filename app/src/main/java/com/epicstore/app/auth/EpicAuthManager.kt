@@ -18,7 +18,7 @@ class EpicAuthManager(private val context: Context) {
     companion object {
         private const val TAG = "EpicAuthManager"
         private const val CLIENT_ID = "34a02cf8f4414e29b15921876da36f9a"
-        private const val CLIENT_SECRET = "daafbccc237768a039fe8bcc4c563da8"
+        private const val CLIENT_SECRET = "daafbccc737745039dffe53d94fc76cf"
         private const val AUTHORIZATION_BASE_URL = "https://www.epicgames.com/id/authorize"
         private const val OAUTH_BASE_URL = "https://account-public-service-prod03.ol.epicgames.com/"
         private const val REDIRECT_URI = "epicstore://callback"
