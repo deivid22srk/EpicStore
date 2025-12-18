@@ -15,6 +15,7 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
     companion object {
         private const val TAG = "EpicGamesRepository"
         private const val LIBRARY_BASE_URL = "https://library-service.live.use1a.on.epicgames.com/"
+        private const val CATALOG_BASE_URL = "https://catalog-public-service-prod06.ol.epicgames.com/"
     }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -36,13 +37,20 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
-    private val retrofit = Retrofit.Builder()
+    private val libraryRetrofit = Retrofit.Builder()
         .baseUrl(LIBRARY_BASE_URL)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
     
-    private val gamesApi = retrofit.create(EpicGamesApi::class.java)
+    private val catalogRetrofit = Retrofit.Builder()
+        .baseUrl(CATALOG_BASE_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+    
+    private val gamesApi = libraryRetrofit.create(EpicGamesApi::class.java)
+    private val catalogApi = catalogRetrofit.create(EpicGamesApi::class.java)
     
     suspend fun getLibraryGames(): Result<List<Game>> {
         return try {
@@ -62,6 +70,31 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
             if (response.isSuccessful && response.body() != null) {
                 val games = response.body()!!.records ?: emptyList()
                 Log.d(TAG, "Retrieved ${games.size} games")
+                
+                // Buscar imagens para os primeiros 10 jogos (evitar muitas requisições)
+                games.take(10).forEach { game ->
+                    if (game.namespace != null && game.catalogItemId != null) {
+                        try {
+                            val catalogResponse = catalogApi.getCatalogInfo(
+                                "bearer $launcherToken",
+                                game.namespace,
+                                game.catalogItemId
+                            )
+                            
+                            if (catalogResponse.isSuccessful && catalogResponse.body() != null) {
+                                val catalogData = catalogResponse.body()!![game.catalogItemId]
+                                val imageUrl = catalogData?.keyImages?.firstOrNull { 
+                                    it.type == "DieselStoreFrontWide" || it.type == "OfferImageWide"
+                                }?.url
+                                game.imageUrl = imageUrl
+                                Log.d(TAG, "Loaded image for ${game.sandboxName}: $imageUrl")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error loading image for ${game.appName}", e)
+                        }
+                    }
+                }
+                
                 Result.success(games)
             } else {
                 Log.e(TAG, "Failed to get library: ${response.code()} - ${response.message()}")

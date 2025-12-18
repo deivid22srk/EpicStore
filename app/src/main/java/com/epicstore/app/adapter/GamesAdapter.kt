@@ -31,10 +31,20 @@ class GamesAdapter : ListAdapter<Game, GamesAdapter.GameViewHolder>(GameDiffCall
         private val gameAppName: TextView = itemView.findViewById(R.id.gameAppName)
         
         fun bind(game: Game) {
-            gameName.text = game.appTitle
+            gameName.text = game.sandboxName ?: game.appName
             gameAppName.text = game.appName
             
-            gameIcon.setImageResource(R.drawable.ic_game_placeholder)
+            // Carregar imagem se disponível
+            if (game.imageUrl != null) {
+                Glide.with(itemView.context)
+                    .load(game.imageUrl)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .placeholder(R.drawable.ic_game_placeholder)
+                    .error(R.drawable.ic_game_placeholder)
+                    .into(gameIcon)
+            } else {
+                gameIcon.setImageResource(R.drawable.ic_game_placeholder)
+            }
         }
     }
     

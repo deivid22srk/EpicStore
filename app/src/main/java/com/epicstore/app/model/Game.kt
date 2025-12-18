@@ -6,17 +6,19 @@ data class Game(
     @SerializedName("appName")
     val appName: String,
     
-    @SerializedName("appTitle")
-    val appTitle: String,
-    
-    @SerializedName("sandboxId")
-    val sandboxId: String?,
+    @SerializedName("sandboxName")
+    val sandboxName: String?,
     
     @SerializedName("namespace")
     val namespace: String?,
     
     @SerializedName("catalogItemId")
-    val catalogItemId: String?
+    val catalogItemId: String?,
+    
+    @SerializedName("sandboxId")
+    val sandboxId: String?,
+    
+    var imageUrl: String? = null  // Para armazenar a URL da imagem carregada
 )
 
 data class GamesResponse(
@@ -58,6 +60,12 @@ data class Category(
 )
 
 data class CatalogResponse(
-    @SerializedName("elements")
-    val elements: List<AssetInfo>?
+    @SerializedName("id")
+    val id: String,
+    
+    @SerializedName("title")
+    val title: String,
+    
+    @SerializedName("keyImages")
+    val keyImages: List<KeyImage>?
 )
