@@ -20,8 +20,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.epicstore.app.DownloadsActivity
-import com.epicstore.app.GameDetailsActivity
+import com.epicstore.app.DownloadsActivityCompose
+import com.epicstore.app.GameDetailsActivityCompose
 import com.epicstore.app.model.Game
 import com.epicstore.app.ui.components.GameCard
 import com.epicstore.app.viewmodel.UiState
