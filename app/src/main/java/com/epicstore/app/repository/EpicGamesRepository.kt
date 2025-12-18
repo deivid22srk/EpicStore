@@ -96,11 +96,11 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
                 
                 Log.d(TAG, "Filtered to ${filteredGames.size} unique PC games")
                 
-                // Buscar imagens em paralelo
+                // Buscar imagens em paralelo - método melhorado baseado no Legendary
                 filteredGames.forEach { game ->
                     if (game.namespace != null && game.catalogItemId != null) {
                         try {
-                            Log.d(TAG, "Fetching image for ${game.sandboxName}...")
+                            Log.d(TAG, "Fetching image for ${game.sandboxName} (namespace: ${game.namespace}, itemId: ${game.catalogItemId})")
                             val catalogResponse = catalogApi.getCatalogInfo(
                                 "bearer $launcherToken",
                                 game.namespace,
@@ -108,22 +108,46 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
                             )
                             
                             if (catalogResponse.isSuccessful && catalogResponse.body() != null) {
-                                val catalogData = catalogResponse.body()!![game.catalogItemId]
-                                val imageUrl = catalogData?.keyImages?.firstOrNull { 
-                                    it.type == "DieselStoreFrontWide" || it.type == "OfferImageWide" || it.type == "Thumbnail"
-                                }?.url
-                                game.imageUrl = imageUrl
-                                if (imageUrl != null) {
-                                    Log.d(TAG, "✓ Image loaded for ${game.sandboxName}")
+                                val responseBody = catalogResponse.body()!!
+                                Log.d(TAG, "Catalog response keys: ${responseBody.keys}")
+                                
+                                val catalogData = responseBody[game.catalogItemId]
+                                
+                                if (catalogData != null) {
+                                    val keyImages = catalogData.keyImages
+                                    Log.d(TAG, "Available image types for ${game.sandboxName}: ${keyImages?.map { it.type }}")
+                                    
+                                    // Tentar múltiplos tipos de imagem em ordem de preferência
+                                    val imageUrl = keyImages?.firstOrNull { 
+                                        it.type == "DieselStoreFrontWide" 
+                                    }?.url ?: keyImages?.firstOrNull { 
+                                        it.type == "OfferImageWide" 
+                                    }?.url ?: keyImages?.firstOrNull { 
+                                        it.type == "DieselGameBoxTall" 
+                                    }?.url ?: keyImages?.firstOrNull { 
+                                        it.type == "DieselGameBox" 
+                                    }?.url ?: keyImages?.firstOrNull { 
+                                        it.type == "Thumbnail" 
+                                    }?.url ?: keyImages?.firstOrNull()?.url
+                                    
+                                    game.imageUrl = imageUrl
+                                    if (imageUrl != null) {
+                                        Log.d(TAG, "✓ Image loaded for ${game.sandboxName}: $imageUrl")
+                                    } else {
+                                        Log.w(TAG, "✗ No image found for ${game.sandboxName}")
+                                    }
                                 } else {
-                                    Log.w(TAG, "✗ No image found for ${game.sandboxName}")
+                                    Log.w(TAG, "No catalog data found for ${game.sandboxName}")
                                 }
                             } else {
-                                Log.e(TAG, "Catalog API failed for ${game.sandboxName}: ${catalogResponse.code()}")
+                                val errorBody = catalogResponse.errorBody()?.string()
+                                Log.e(TAG, "Catalog API failed for ${game.sandboxName}: ${catalogResponse.code()} - $errorBody")
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error loading image for ${game.sandboxName}", e)
                         }
+                    } else {
+                        Log.w(TAG, "Missing namespace or catalogItemId for ${game.sandboxName}")
                     }
                 }
                 

@@ -1,66 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView 
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
-    app:cardCornerRadius="16dp"
+    style="@style/Widget.Material3.CardView.Elevated"
+    app:cardCornerRadius="20dp"
     app:cardElevation="2dp"
     app:strokeWidth="0dp">
 
-    <LinearLayout
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp">
+        android:padding="12dp">
 
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/gameIcon"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:scaleType="centerCrop"
-            android:contentDescription="@string/game_icon"
-            app:shapeAppearanceOverlay="@style/RoundedImageView"
-            tools:src="@drawable/ic_game_placeholder" />
+        <!-- Game Icon -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/iconCard"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
 
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/gameIcon"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="@string/game_icon"
+                tools:src="@drawable/ic_game_placeholder" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Game Info -->
         <LinearLayout
+            android:id="@+id/gameInfoLayout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_marginEnd="8dp"
+            android:orientation="vertical"
+            app:layout_constraintStart_toEndOf="@id/iconCard"
+            app:layout_constraintEnd_toStartOf="@id/gameDetailsButton"
+            app:layout_constraintTop_toTopOf="@id/iconCard"
+            app:layout_constraintBottom_toBottomOf="@id/iconCard">
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/gameName"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="2"
-                android:textAppearance="?attr/textAppearanceTitleMedium"
-                android:textStyle="bold"
-                tools:text="Game Title" />
+                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                android:textColor="?attr/colorOnSurface"
+                tools:text="Fortnite" />
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/gameAppName"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="game_app_name" />
+                tools:text="fortnite" />
 
         </LinearLayout>
 
+        <!-- Details Button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/gameDetailsButton"
-            style="@style/Widget.Material3.Button.IconButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:contentDescription="@string/view_details"
-            app:icon="@drawable/ic_arrow_forward" />
+            app:icon="@drawable/ic_arrow_forward"
+            app:iconSize="24dp"
+            app:iconTint="?attr/colorOnSecondaryContainer"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/iconCard"
+            app:layout_constraintBottom_toBottomOf="@id/iconCard" />
 
-    </LinearLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
 </com.google.android.material.card.MaterialCardView>

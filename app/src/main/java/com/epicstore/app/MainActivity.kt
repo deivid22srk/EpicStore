@@ -79,8 +79,12 @@ class MainActivity : AppCompatActivity() {
         try {
             lifecycleScope.launch {
                 viewModel.uiState.collect { state ->
-                    binding.progressBar.visibility = if (state.isLoading) View.VISIBLE else View.GONE
-                    binding.swipeRefresh.isRefreshing = state.isLoading
+                    if (binding.swipeRefresh.visibility == View.VISIBLE) {
+                        binding.progressBar.visibility = View.GONE
+                        binding.swipeRefresh.isRefreshing = state.isLoading
+                    } else {
+                        binding.progressBar.visibility = if (state.isLoading) View.VISIBLE else View.GONE
+                    }
                     
                     state.games?.let { games ->
                         if (games.isEmpty()) {
@@ -131,7 +135,7 @@ class MainActivity : AppCompatActivity() {
     private fun showLibrary() {
         try {
             binding.loginLayout.visibility = View.GONE
-            binding.contentLayout.visibility = View.VISIBLE
+            binding.swipeRefresh.visibility = View.VISIBLE
             invalidateOptionsMenu()
         } catch (e: Exception) {
             Log.e(TAG, "Error showing library", e)

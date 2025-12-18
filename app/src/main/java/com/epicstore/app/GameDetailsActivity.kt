@@ -8,20 +8,18 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
-import android.widget.Button
-import android.widget.ImageView
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.bumptech.glide.Glide
-import com.epicstore.app.model.Game
+import com.epicstore.app.databinding.ActivityGameDetailsBinding
 import com.epicstore.app.service.DownloadService
 
 class GameDetailsActivity : AppCompatActivity() {
     
+    private lateinit var binding: ActivityGameDetailsBinding
     private var gameName: String = ""
     private var appName: String = ""
     private var namespace: String = ""
@@ -51,7 +49,12 @@ class GameDetailsActivity : AppCompatActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_game_details)
+        binding = ActivityGameDetailsBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowHomeEnabled(true)
         
         gameName = intent.getStringExtra("GAME_NAME") ?: ""
         appName = intent.getStringExtra("APP_NAME") ?: ""
@@ -59,26 +62,26 @@ class GameDetailsActivity : AppCompatActivity() {
         catalogItemId = intent.getStringExtra("CATALOG_ITEM_ID") ?: ""
         val imageUrl = intent.getStringExtra("IMAGE_URL")
         
-        findViewById<TextView>(R.id.gameTitle).text = gameName
-        findViewById<TextView>(R.id.gameAppName).text = "App: $appName"
-        findViewById<TextView>(R.id.gameNamespace).text = "Namespace: $namespace"
+        binding.collapsingToolbar.title = gameName
+        binding.gameTitle.text = gameName
+        binding.gameAppName.text = "App: $appName"
+        binding.gameNamespace.text = "Namespace: $namespace"
         
-        val gameImage = findViewById<ImageView>(R.id.gameImage)
         if (imageUrl != null) {
             Glide.with(this)
                 .load(imageUrl)
                 .placeholder(R.drawable.ic_game_placeholder)
                 .error(R.drawable.ic_game_placeholder)
-                .into(gameImage)
+                .into(binding.gameImage)
         } else {
-            gameImage.setImageResource(R.drawable.ic_game_placeholder)
+            binding.gameImage.setImageResource(R.drawable.ic_game_placeholder)
         }
         
-        findViewById<Button>(R.id.downloadButton).setOnClickListener {
+        binding.downloadButton.setOnClickListener {
             checkPermissionsAndDownload()
         }
         
-        findViewById<ImageView>(R.id.backButton).setOnClickListener {
+        binding.toolbar.setNavigationOnClickListener {
             finish()
         }
     }
