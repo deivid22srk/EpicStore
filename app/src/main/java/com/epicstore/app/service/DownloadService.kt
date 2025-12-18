@@ -103,7 +103,7 @@ class DownloadService : Service() {
         isResume: Boolean
     ) {
         try {
-            Log.d(TAG, "Starting download for $gameName (Resume: $isResume)")
+            Log.d(TAG, "🚀 Starting download for $gameName (Resume: $isResume)")
             
             val existingDownload = database.downloadDao().getDownload(appName)
             
@@ -135,7 +135,7 @@ class DownloadService : Service() {
             
             val manifestApi = launcherRetrofit.create(EpicGamesApi::class.java)
             
-            Log.d(TAG, "Fetching manifest info...")
+            Log.d(TAG, "📥 Fetching manifest info...")
             updateNotification(gameName, 5, "Obtendo manifest...")
             
             val manifestResponse = retryWithExponentialBackoff(
@@ -188,6 +188,7 @@ class DownloadService : Service() {
             
             val baseUrl = manifestInfo.uri.substringBeforeLast('/')
             
+            Log.d(TAG, "📥 Downloading manifest from: $manifestUri")
             updateNotification(gameName, 10, "Baixando manifest...")
             
             val manifestBytes = retryWithExponentialBackoff(
@@ -209,31 +210,54 @@ class DownloadService : Service() {
                 }
             }
             
+            Log.d(TAG, "✓ Manifest downloaded (${manifestBytes.size} bytes)")
+            updateNotification(gameName, 15, "Analisando manifest...")
+            
+            Log.d(TAG, "→ Parsing manifest...")
             val manifest = ManifestParser.parse(manifestBytes)
             val totalSize = manifest.getTotalSize()
             val totalChunks = manifest.getTotalChunks()
             val totalFiles = manifest.files.size
             
-            Log.d(TAG, "Manifest: ${manifest.meta.appName} v${manifest.meta.buildVersion}")
-            Log.d(TAG, "Files: $totalFiles, Chunks: $totalChunks, Size: ${totalSize / 1024 / 1024} MB")
+            Log.d(TAG, "✓ Manifest: ${manifest.meta.appName} v${manifest.meta.buildVersion}")
+            Log.d(TAG, "  Files: $totalFiles, Chunks: $totalChunks, Size: ${totalSize / 1024 / 1024} MB")
             
             val downloadDir = File(DOWNLOAD_DIR, appName)
             if (!downloadDir.exists()) {
+                Log.d(TAG, "→ Creating download directory: ${downloadDir.absolutePath}")
                 downloadDir.mkdirs()
             }
             
-            val resumeFile = File(downloadDir, ".resume")
-            val completedFiles = mutableSetOf<String>()
+            val chunkCacheDir = File(downloadDir, ".chunks")
+            if (!chunkCacheDir.exists()) {
+                Log.d(TAG, "→ Creating chunk cache directory")
+                chunkCacheDir.mkdirs()
+            }
             
-            if (isResume && resumeFile.exists()) {
+            updateNotification(gameName, 20, "Preparando download...")
+            
+            Log.d(TAG, "→ Identifying unique chunks...")
+            val uniqueChunks = mutableMapOf<String, com.epicstore.app.download.ChunkInfo>()
+            manifest.chunks.forEach { chunk ->
+                val key = chunk.getGuidStr()
+                if (!uniqueChunks.containsKey(key)) {
+                    uniqueChunks[key] = chunk
+                }
+            }
+            
+            Log.d(TAG, "✓ Total unique chunks: ${uniqueChunks.size}")
+            
+            val downloadedChunksFile = File(downloadDir, ".downloaded_chunks")
+            val downloadedChunks = mutableSetOf<String>()
+            
+            if (isResume && downloadedChunksFile.exists()) {
                 try {
-                    resumeFile.readLines().forEach { line ->
-                        val (hash, filename) = line.split(":", limit = 2)
-                        completedFiles.add(filename)
+                    downloadedChunksFile.readLines().forEach { line ->
+                        downloadedChunks.add(line.trim())
                     }
-                    Log.d(TAG, "Resuming download, ${completedFiles.size} files already completed")
+                    Log.d(TAG, "→ Resuming download, ${downloadedChunks.size} chunks already downloaded")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error reading resume file", e)
+                    Log.e(TAG, "Error reading downloaded chunks file", e)
                 }
             }
             
@@ -248,136 +272,95 @@ class DownloadService : Service() {
             )
             database.downloadDao().insertDownload(downloadState)
             
+            updateNotification(gameName, 25, "Iniciando download de chunks...")
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "========== PHASE 1: DOWNLOADING CHUNKS ==========")
+            Log.d(TAG, "")
+            
             val chunkDownloader = ChunkDownloader(okHttpClient)
-            val fileAssembler = FileAssembler(downloadDir)
-            val chunkCache = ConcurrentHashMap<String, DecodedChunk>()
-            
-            val uniqueChunks = mutableMapOf<String, com.epicstore.app.download.ChunkInfo>()
-            manifest.chunks.forEach { chunk ->
-                val key = chunk.getGuidStr()
-                if (!uniqueChunks.containsKey(key)) {
-                    uniqueChunks[key] = chunk
-                }
-            }
-            
-            var downloadedChunks = 0
+            var downloadedChunkCount = downloadedChunks.size
             var downloadedBytes = 0L
-            var processedFiles = 0
             
             var lastUpdateTime = System.currentTimeMillis()
             var bytesSinceLastUpdate = 0L
-            val startTime = System.currentTimeMillis()
             
-            for (file in manifest.files) {
+            for ((chunkGuid, chunkInfo) in uniqueChunks) {
                 if (!isRunning) {
-                    Log.d(TAG, "Download paused by user")
+                    Log.d(TAG, "⏸ Download paused by user")
                     break
                 }
                 
-                if (completedFiles.contains(file.filename)) {
-                    processedFiles++
+                val chunkFile = File(chunkCacheDir, chunkGuid)
+                
+                if (chunkFile.exists() && downloadedChunks.contains(chunkGuid)) {
+                    downloadedChunkCount++
                     continue
                 }
                 
                 try {
-                    val neededChunks = mutableSetOf<String>()
-                    file.chunkParts.forEach { part ->
-                        neededChunks.add(part.getGuidStr())
+                    val chunkUrl = "$baseUrl/${chunkInfo.getPath()}"
+                    
+                    Log.d(TAG, "⬇ Downloading chunk $downloadedChunkCount/${uniqueChunks.size}: $chunkGuid")
+                    
+                    val chunk = retryWithExponentialBackoff(
+                        maxAttempts = 3,
+                        initialDelayMs = 500,
+                        maxDelayMs = 5000,
+                        operation = "baixar chunk $chunkGuid"
+                    ) {
+                        withContext(Dispatchers.IO) {
+                            chunkDownloader.downloadAndDecodeChunk(chunkUrl)
+                        }
                     }
                     
-                    for (chunkGuid in neededChunks) {
-                        if (!isRunning) break
+                    withContext(Dispatchers.IO) {
+                        chunkFile.outputStream().use { output ->
+                            output.write(chunk.data)
+                        }
+                    }
+                    
+                    downloadedChunksFile.appendText("$chunkGuid\n")
+                    downloadedChunks.add(chunkGuid)
+                    
+                    downloadedChunkCount++
+                    downloadedBytes += chunk.originalSize
+                    bytesSinceLastUpdate += chunk.originalSize
+                    
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastUpdateTime >= UPDATE_INTERVAL_MS) {
+                        val delta = (currentTime - lastUpdateTime) / 1000.0
+                        val speed = (bytesSinceLastUpdate / delta).toLong()
                         
-                        if (!chunkCache.containsKey(chunkGuid)) {
-                            val chunkInfo = uniqueChunks[chunkGuid]
-                            if (chunkInfo != null) {
-                                val chunkUrl = "$baseUrl/${chunkInfo.getPath()}"
-                                
-                                val chunk = retryWithExponentialBackoff(
-                                    maxAttempts = 3,
-                                    initialDelayMs = 500,
-                                    maxDelayMs = 5000,
-                                    operation = "baixar chunk $chunkGuid"
-                                ) {
-                                    withContext(Dispatchers.IO) {
-                                        chunkDownloader.downloadAndDecodeChunk(chunkUrl)
-                                    }
-                                }
-                                chunkCache[chunkGuid] = chunk
-                                
-                                downloadedChunks++
-                                downloadedBytes += chunk.originalSize
-                                bytesSinceLastUpdate += chunk.originalSize
-                                
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastUpdateTime >= UPDATE_INTERVAL_MS) {
-                                    val delta = (currentTime - lastUpdateTime) / 1000.0
-                                    val speed = (bytesSinceLastUpdate / delta).toLong()
-                                    
-                                    val progress = ((downloadedBytes.toDouble() / totalSize) * 100).roundToInt()
-                                    val speedMB = speed / (1024.0 * 1024.0)
-                                    
-                                    updateNotification(
-                                        gameName,
-                                        progress,
-                                        String.format("%.2f MB/s - %d/%d chunks", speedMB, downloadedChunks, totalChunks)
-                                    )
-                                    
-                                    database.downloadDao().updateDownload(
-                                        downloadState.copy(
-                                            downloadedSize = downloadedBytes,
-                                            downloadSpeed = speed,
-                                            lastUpdateTime = currentTime
-                                        )
-                                    )
-                                    
-                                    lastUpdateTime = currentTime
-                                    bytesSinceLastUpdate = 0L
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (!isRunning) break
-                    
-                    fileAssembler.assembleFile(file, manifest.chunks) { chunkInfo ->
-                        chunkCache[chunkInfo.getGuidStr()] ?: throw Exception("Chunk not in cache")
-                    }
-                    
-                    processedFiles++
-                    val fileHash = file.hash.joinToString("") { "%02x".format(it) }
-                    resumeFile.appendText("$fileHash:${file.filename}\n")
-                    
-                    chunkCache.entries.removeIf { entry ->
-                        !manifest.files.subList(processedFiles, manifest.files.size).any { f ->
-                            f.chunkParts.any { cp -> cp.getGuidStr() == entry.key }
-                        }
+                        val progress = 25 + ((downloadedChunkCount.toDouble() / uniqueChunks.size) * 50).roundToInt()
+                        val speedMB = speed / (1024.0 * 1024.0)
+                        
+                        updateNotification(
+                            gameName,
+                            progress,
+                            String.format("%.2f MB/s - Baixando chunks %d/%d", speedMB, downloadedChunkCount, uniqueChunks.size)
+                        )
+                        
+                        database.downloadDao().updateDownload(
+                            downloadState.copy(
+                                downloadedSize = downloadedBytes,
+                                downloadSpeed = speed,
+                                lastUpdateTime = currentTime
+                            )
+                        )
+                        
+                        lastUpdateTime = currentTime
+                        bytesSinceLastUpdate = 0L
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error processing file ${file.filename}", e)
+                    Log.e(TAG, "✗ Error downloading chunk $chunkGuid", e)
+                    throw e
                 }
             }
             
-            fileAssembler.cleanup()
-            
-            if (isRunning && processedFiles == totalFiles) {
-                Log.d(TAG, "Download completed!")
-                resumeFile.delete()
-                
-                database.downloadDao().updateDownload(
-                    downloadState.copy(
-                        downloadedSize = totalSize,
-                        status = DownloadStatus.COMPLETED,
-                        downloadSpeed = 0L,
-                        lastUpdateTime = System.currentTimeMillis()
-                    )
-                )
-                
-                updateNotification(gameName, 100, "Download concluído!")
-                Thread.sleep(3000)
-            } else {
-                Log.d(TAG, "Download paused or interrupted")
+            if (!isRunning) {
+                Log.d(TAG, "Download paused during chunk download phase")
                 database.downloadDao().updateDownload(
                     downloadState.copy(
                         downloadedSize = downloadedBytes,
@@ -386,12 +369,138 @@ class DownloadService : Service() {
                         lastUpdateTime = System.currentTimeMillis()
                     )
                 )
+                stopSelf()
+                return
             }
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "✓ All chunks downloaded successfully!")
+            Log.d(TAG, "")
+            Log.d(TAG, "========== PHASE 2: ASSEMBLING FILES ==========")
+            Log.d(TAG, "")
+            
+            updateNotification(gameName, 75, "Montando arquivos...")
+            
+            val assembledFilesFile = File(downloadDir, ".assembled_files")
+            val assembledFiles = mutableSetOf<String>()
+            
+            if (isResume && assembledFilesFile.exists()) {
+                try {
+                    assembledFilesFile.readLines().forEach { line ->
+                        assembledFiles.add(line.trim())
+                    }
+                    Log.d(TAG, "→ Resuming assembly, ${assembledFiles.size} files already assembled")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reading assembled files file", e)
+                }
+            }
+            
+            var assembledFileCount = assembledFiles.size
+            
+            for (file in manifest.files) {
+                if (!isRunning) {
+                    Log.d(TAG, "⏸ Download paused by user")
+                    break
+                }
+                
+                if (assembledFiles.contains(file.filename)) {
+                    assembledFileCount++
+                    continue
+                }
+                
+                try {
+                    Log.d(TAG, "🔧 Assembling file $assembledFileCount/${totalFiles}: ${file.filename}")
+                    
+                    val outputFile = File(downloadDir, file.filename)
+                    outputFile.parentFile?.mkdirs()
+                    
+                    withContext(Dispatchers.IO) {
+                        outputFile.outputStream().buffered().use { output ->
+                            for (part in file.chunkParts) {
+                                val chunkGuid = part.getGuidStr()
+                                val chunkFile = File(chunkCacheDir, chunkGuid)
+                                
+                                if (!chunkFile.exists()) {
+                                    throw Exception("Chunk file not found: $chunkGuid")
+                                }
+                                
+                                val chunkData = chunkFile.readBytes()
+                                
+                                if (part.offset + part.size > chunkData.size) {
+                                    throw Exception("Invalid chunk part: offset=${part.offset}, size=${part.size}, chunkSize=${chunkData.size}")
+                                }
+                                
+                                output.write(chunkData, part.offset, part.size)
+                            }
+                        }
+                    }
+                    
+                    if (file.isExecutable) {
+                        outputFile.setExecutable(true)
+                    }
+                    
+                    assembledFilesFile.appendText("${file.filename}\n")
+                    assembledFiles.add(file.filename)
+                    
+                    assembledFileCount++
+                    
+                    val progress = 75 + ((assembledFileCount.toDouble() / totalFiles) * 25).roundToInt()
+                    updateNotification(
+                        gameName,
+                        progress,
+                        String.format("Montando arquivos %d/%d", assembledFileCount, totalFiles)
+                    )
+                    
+                    Log.d(TAG, "✓ File assembled: ${file.filename}")
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "✗ Error assembling file ${file.filename}", e)
+                    throw e
+                }
+            }
+            
+            if (!isRunning) {
+                Log.d(TAG, "Download paused during assembly phase")
+                database.downloadDao().updateDownload(
+                    downloadState.copy(
+                        downloadedSize = downloadedBytes,
+                        status = DownloadStatus.PAUSED,
+                        downloadSpeed = 0L,
+                        lastUpdateTime = System.currentTimeMillis()
+                    )
+                )
+                stopSelf()
+                return
+            }
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "✓ All files assembled successfully!")
+            Log.d(TAG, "→ Cleaning up temporary files...")
+            
+            chunkCacheDir.deleteRecursively()
+            downloadedChunksFile.delete()
+            assembledFilesFile.delete()
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "🎉 DOWNLOAD COMPLETED SUCCESSFULLY!")
+            Log.d(TAG, "")
+            
+            database.downloadDao().updateDownload(
+                downloadState.copy(
+                    downloadedSize = totalSize,
+                    status = DownloadStatus.COMPLETED,
+                    downloadSpeed = 0L,
+                    lastUpdateTime = System.currentTimeMillis()
+                )
+            )
+            
+            updateNotification(gameName, 100, "Download concluído!")
+            Thread.sleep(3000)
             
             stopSelf()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Download failed", e)
+            Log.e(TAG, "❌ Download failed", e)
             saveDownloadError(appName, gameName, namespace, catalogItemId, e.message ?: "Erro desconhecido")
             stopSelf()
         }
