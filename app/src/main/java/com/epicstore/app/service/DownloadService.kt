@@ -16,6 +16,11 @@ import com.epicstore.app.R
 import com.epicstore.app.auth.EpicAuthManager
 import com.epicstore.app.network.EpicGamesApi
 import com.epicstore.app.model.ManifestResponse
+import com.epicstore.app.download.ManifestParser
+import com.epicstore.app.download.ChunkDownloader
+import com.epicstore.app.download.FileAssembler
+import com.epicstore.app.download.ChunkInfo
+import com.epicstore.app.download.DecodedChunk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,9 +33,8 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
-import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
-import java.util.zip.Inflater
+import java.util.concurrent.ConcurrentHashMap
 
 class DownloadService : Service() {
     
@@ -50,12 +54,13 @@ class DownloadService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private lateinit var authManager: EpicAuthManager
     private lateinit var notificationManager: NotificationManager
+    
     private val okHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val original = chain.request()
                 val request = original.newBuilder()
-                    .header("User-Agent", "UELauncher/14.0.8-22004686+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
+                    .header("User-Agent", "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
                     .method(original.method, original.body)
                     .build()
                 chain.proceed(request)
@@ -111,8 +116,8 @@ class DownloadService : Service() {
             
             val manifestApi = launcherRetrofit.create(EpicGamesApi::class.java)
             
-            Log.d(TAG, "Fetching manifest...")
-            updateNotification(gameName, 5, "Baixando manifest...")
+            Log.d(TAG, "Fetching manifest info...")
+            updateNotification(gameName, 5, "Obtendo informações do manifest...")
             
             val manifestResponse = manifestApi.getGameManifest(
                 "bearer $token",
@@ -152,7 +157,11 @@ class DownloadService : Service() {
             updateNotification(gameName, 10, "Baixando arquivo manifest...")
             
             val manifestBytes = withContext(Dispatchers.IO) {
-                val request = Request.Builder().url(manifestUri).build()
+                val request = Request.Builder()
+                    .url(manifestUri)
+                    .header("User-Agent", "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
+                    .build()
+                    
                 val response = okHttpClient.newCall(request).execute()
                 if (!response.isSuccessful) {
                     throw Exception("Failed to download manifest file: ${response.code}")
@@ -163,92 +172,115 @@ class DownloadService : Service() {
             Log.d(TAG, "Manifest downloaded: ${manifestBytes.size} bytes")
             updateNotification(gameName, 15, "Processando manifest...")
             
-            val manifest = parseManifest(manifestBytes)
-            val totalSize = manifest.totalSize
-            val totalChunks = manifest.chunks.size
+            val manifest = ManifestParser.parse(manifestBytes)
+            val totalSize = manifest.getTotalSize()
+            val totalChunks = manifest.getTotalChunks()
+            val totalFiles = manifest.files.size
             
-            Log.d(TAG, "Manifest parsed: $totalChunks chunks, total size: ${totalSize / 1024 / 1024} MB")
+            Log.d(TAG, "Manifest parsed successfully")
+            Log.d(TAG, "  App: ${manifest.meta.appName}, Version: ${manifest.meta.buildVersion}")
+            Log.d(TAG, "  Total files: $totalFiles")
+            Log.d(TAG, "  Total chunks: $totalChunks")
+            Log.d(TAG, "  Total size: ${totalSize / 1024 / 1024} MB")
             
             val downloadDir = File(DOWNLOAD_DIR, appName)
             if (!downloadDir.exists()) {
                 downloadDir.mkdirs()
             }
             
-            updateNotification(gameName, 20, "Baixando ${totalChunks} chunks...")
+            val chunkDownloader = ChunkDownloader(okHttpClient)
+            val fileAssembler = FileAssembler(downloadDir)
+            
+            val chunkCache = ConcurrentHashMap<String, DecodedChunk>()
+            
+            updateNotification(gameName, 20, "Iniciando download de $totalChunks chunks...")
             
             var downloadedChunks = 0
             var downloadedBytes = 0L
             val startTime = System.currentTimeMillis()
             
-            for ((index, chunkInfo) in manifest.chunks.withIndex()) {
-                try {
-                    val chunkUrl = "$baseUrl/${chunkInfo.path}"
-                    Log.d(TAG, "Downloading chunk ${index + 1}/$totalChunks: $chunkUrl")
-                    
-                    val chunkData = withContext(Dispatchers.IO) {
-                        val request = Request.Builder().url(chunkUrl).build()
-                        val response = okHttpClient.newCall(request).execute()
-                        if (!response.isSuccessful) {
-                            throw Exception("Failed to download chunk: ${response.code}")
-                        }
-                        response.body?.bytes() ?: throw Exception("Empty chunk response")
-                    }
-                    
-                    downloadedChunks++
-                    downloadedBytes += chunkData.size
-                    
-                    val progress = 20 + ((downloadedChunks.toFloat() / totalChunks) * 70).toInt()
-                    val elapsedSec = (System.currentTimeMillis() - startTime) / 1000
-                    val speed = if (elapsedSec > 0) downloadedBytes / elapsedSec else 0
-                    val speedMB = speed / 1024 / 1024
-                    
-                    updateNotification(
-                        gameName, 
-                        progress, 
-                        "Baixando: $downloadedChunks/$totalChunks chunks (${speedMB}MB/s)"
-                    )
-                    
-                    if (index % 10 == 0) {
-                        Log.d(TAG, "Progress: $downloadedChunks/$totalChunks chunks, ${downloadedBytes / 1024 / 1024}MB downloaded")
-                    }
-                    
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error downloading chunk ${index + 1}: ${e.message}", e)
+            val uniqueChunks = mutableMapOf<String, ChunkInfo>()
+            for (chunk in manifest.chunks) {
+                val key = chunk.getGuidStr()
+                if (!uniqueChunks.containsKey(key)) {
+                    uniqueChunks[key] = chunk
                 }
             }
             
+            Log.d(TAG, "Downloading ${uniqueChunks.size} unique chunks...")
+            
+            var processedFiles = 0
+            for (file in manifest.files) {
+                try {
+                    Log.d(TAG, "Processing file: ${file.filename} (${file.fileSize} bytes)")
+                    
+                    val neededChunks = mutableSetOf<String>()
+                    for (part in file.chunkParts) {
+                        neededChunks.add(part.getGuidStr())
+                    }
+                    
+                    for (chunkGuid in neededChunks) {
+                        if (!chunkCache.containsKey(chunkGuid)) {
+                            val chunkInfo = uniqueChunks[chunkGuid]
+                            if (chunkInfo != null) {
+                                val chunkUrl = "$baseUrl/${chunkInfo.getPath()}"
+                                
+                                try {
+                                    val chunk = chunkDownloader.downloadAndDecodeChunk(chunkUrl)
+                                    chunkCache[chunkGuid] = chunk
+                                    
+                                    downloadedChunks++
+                                    downloadedBytes += chunk.originalSize
+                                    
+                                    val progress = 20 + ((downloadedChunks.toFloat() / totalChunks) * 60).toInt()
+                                    val elapsedSec = (System.currentTimeMillis() - startTime) / 1000
+                                    val speed = if (elapsedSec > 0) downloadedBytes / elapsedSec else 0
+                                    val speedMB = speed / 1024 / 1024
+                                    
+                                    updateNotification(
+                                        gameName,
+                                        progress,
+                                        "Baixando chunks: $downloadedChunks/$totalChunks (${speedMB}MB/s)"
+                                    )
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to download chunk $chunkGuid: ${e.message}", e)
+                                }
+                            }
+                        }
+                    }
+                    
+                    fileAssembler.assembleFile(file, manifest.chunks) { chunkInfo ->
+                        chunkCache[chunkInfo.getGuidStr()] ?: throw Exception("Chunk not in cache: ${chunkInfo.getGuidStr()}")
+                    }
+                    
+                    processedFiles++
+                    val fileProgress = 80 + ((processedFiles.toFloat() / totalFiles) * 15).toInt()
+                    updateNotification(
+                        gameName,
+                        fileProgress,
+                        "Montando arquivos: $processedFiles/$totalFiles"
+                    )
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing file ${file.filename}: ${e.message}", e)
+                }
+            }
+            
+            fileAssembler.cleanup()
+            
             updateNotification(gameName, 95, "Finalizando download...")
-            Log.d(TAG, "Download completed: $downloadedChunks/$totalChunks chunks")
+            Log.d(TAG, "Download completed: $downloadedChunks chunks, $processedFiles files")
             
             updateNotification(gameName, 100, "Download concluído!")
-            Thread.sleep(2000)
+            Thread.sleep(3000)
             stopSelf()
             
         } catch (e: Exception) {
             Log.e(TAG, "Download failed", e)
             updateNotification(gameName, 0, "Erro: ${e.message}")
-            Thread.sleep(3000)
+            Thread.sleep(5000)
             stopSelf()
         }
-    }
-    
-    private fun parseManifest(data: ByteArray): ParsedManifest {
-        Log.d(TAG, "Parsing manifest (simplified version)...")
-        
-        val chunks = mutableListOf<ChunkPath>()
-        var totalSize = 0L
-        
-        for (i in 0 until 50) {
-            val groupNum = i % 100
-            val hash = String.format("%016X", i * 123456789L)
-            val guid = String.format("%08X%08X%08X%08X", i, i, i, i)
-            val path = "ChunksV4/${String.format("%02d", groupNum)}/${hash}_${guid}.chunk"
-            
-            chunks.add(ChunkPath(path, 1024 * 1024))
-            totalSize += 1024 * 1024
-        }
-        
-        return ParsedManifest(chunks, totalSize)
     }
     
     private fun createNotificationChannel() {
@@ -306,14 +338,4 @@ class DownloadService : Service() {
         super.onDestroy()
         serviceScope.cancel()
     }
-    
-    data class ParsedManifest(
-        val chunks: List<ChunkPath>,
-        val totalSize: Long
-    )
-    
-    data class ChunkPath(
-        val path: String,
-        val size: Long
-    )
 }
