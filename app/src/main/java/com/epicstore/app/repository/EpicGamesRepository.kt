@@ -14,7 +14,7 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
     
     companion object {
         private const val TAG = "EpicGamesRepository"
-        private const val LAUNCHER_BASE_URL = "https://launcher-public-service-prod06.ol.epicgames.com/"
+        private const val LIBRARY_BASE_URL = "https://library-service.live.use1a.on.epicgames.com/"
     }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -29,7 +29,7 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
         .build()
     
     private val retrofit = Retrofit.Builder()
-        .baseUrl(LAUNCHER_BASE_URL)
+        .baseUrl(LIBRARY_BASE_URL)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
