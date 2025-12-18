@@ -18,7 +18,13 @@ data class Game(
     @SerializedName("sandboxId")
     val sandboxId: String?,
     
-    var imageUrl: String? = null  // Para armazenar a URL da imagem carregada
+    @SerializedName("platform")
+    val platform: List<String>?,
+    
+    @SerializedName("recordType")
+    val recordType: String?,
+    
+    var imageUrl: String? = null
 )
 
 data class GamesResponse(

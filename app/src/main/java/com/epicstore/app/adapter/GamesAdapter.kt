@@ -1,5 +1,6 @@
 package com.epicstore.app.adapter
 
+import android.content.Intent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +11,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.epicstore.app.GameDetailsActivity
 import com.epicstore.app.R
 import com.epicstore.app.model.Game
 
@@ -34,7 +36,6 @@ class GamesAdapter : ListAdapter<Game, GamesAdapter.GameViewHolder>(GameDiffCall
             gameName.text = game.sandboxName ?: game.appName
             gameAppName.text = game.appName
             
-            // Carregar imagem se disponível
             if (game.imageUrl != null) {
                 Glide.with(itemView.context)
                     .load(game.imageUrl)
@@ -44,6 +45,17 @@ class GamesAdapter : ListAdapter<Game, GamesAdapter.GameViewHolder>(GameDiffCall
                     .into(gameIcon)
             } else {
                 gameIcon.setImageResource(R.drawable.ic_game_placeholder)
+            }
+            
+            itemView.setOnClickListener {
+                val intent = Intent(itemView.context, GameDetailsActivity::class.java).apply {
+                    putExtra("GAME_NAME", game.sandboxName ?: game.appName)
+                    putExtra("APP_NAME", game.appName)
+                    putExtra("NAMESPACE", game.namespace)
+                    putExtra("CATALOG_ITEM_ID", game.catalogItemId)
+                    putExtra("IMAGE_URL", game.imageUrl)
+                }
+                itemView.context.startActivity(intent)
             }
         }
     }

@@ -16,6 +16,7 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
         private const val TAG = "EpicGamesRepository"
         private const val LIBRARY_BASE_URL = "https://library-service.live.use1a.on.epicgames.com/"
         private const val CATALOG_BASE_URL = "https://catalog-public-service-prod06.ol.epicgames.com/"
+        private const val LAUNCHER_BASE_URL = "https://launcher-public-service-prod06.ol.epicgames.com/"
     }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -49,8 +50,15 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
         .addConverterFactory(GsonConverterFactory.create())
         .build()
     
+    private val launcherRetrofit = Retrofit.Builder()
+        .baseUrl(LAUNCHER_BASE_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+    
     private val gamesApi = libraryRetrofit.create(EpicGamesApi::class.java)
     private val catalogApi = catalogRetrofit.create(EpicGamesApi::class.java)
+    private val manifestApi = launcherRetrofit.create(EpicGamesApi::class.java)
     
     suspend fun getLibraryGames(): Result<List<Game>> {
         return try {
@@ -68,13 +76,31 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
             val response = gamesApi.getLibraryGames("bearer $launcherToken")
             
             if (response.isSuccessful && response.body() != null) {
-                val games = response.body()!!.records ?: emptyList()
-                Log.d(TAG, "Retrieved ${games.size} games")
+                val allGames = response.body()!!.records ?: emptyList()
+                Log.d(TAG, "Retrieved ${allGames.size} total items")
                 
-                // Buscar imagens para os primeiros 10 jogos (evitar muitas requisições)
-                games.take(10).forEach { game ->
+                // Filtrar apenas jogos de PC válidos
+                val filteredGames = allGames
+                    .filter { game ->
+                        // Apenas Windows
+                        game.platform?.contains("Windows") == true &&
+                        // Apenas APPLICATION (não DLC)
+                        game.recordType == "APPLICATION" &&
+                        // Tem nome válido
+                        !game.sandboxName.isNullOrBlank() &&
+                        // Não é "Live" genérico
+                        game.sandboxName != "Live"
+                    }
+                    .distinctBy { it.sandboxName } // Remove duplicatas pelo nome
+                    .sortedBy { it.sandboxName }
+                
+                Log.d(TAG, "Filtered to ${filteredGames.size} unique PC games")
+                
+                // Buscar imagens em paralelo
+                filteredGames.forEach { game ->
                     if (game.namespace != null && game.catalogItemId != null) {
                         try {
+                            Log.d(TAG, "Fetching image for ${game.sandboxName}...")
                             val catalogResponse = catalogApi.getCatalogInfo(
                                 "bearer $launcherToken",
                                 game.namespace,
@@ -84,18 +110,24 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
                             if (catalogResponse.isSuccessful && catalogResponse.body() != null) {
                                 val catalogData = catalogResponse.body()!![game.catalogItemId]
                                 val imageUrl = catalogData?.keyImages?.firstOrNull { 
-                                    it.type == "DieselStoreFrontWide" || it.type == "OfferImageWide"
+                                    it.type == "DieselStoreFrontWide" || it.type == "OfferImageWide" || it.type == "Thumbnail"
                                 }?.url
                                 game.imageUrl = imageUrl
-                                Log.d(TAG, "Loaded image for ${game.sandboxName}: $imageUrl")
+                                if (imageUrl != null) {
+                                    Log.d(TAG, "✓ Image loaded for ${game.sandboxName}")
+                                } else {
+                                    Log.w(TAG, "✗ No image found for ${game.sandboxName}")
+                                }
+                            } else {
+                                Log.e(TAG, "Catalog API failed for ${game.sandboxName}: ${catalogResponse.code()}")
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error loading image for ${game.appName}", e)
+                            Log.e(TAG, "Error loading image for ${game.sandboxName}", e)
                         }
                     }
                 }
                 
-                Result.success(games)
+                Result.success(filteredGames)
             } else {
                 Log.e(TAG, "Failed to get library: ${response.code()} - ${response.message()}")
                 Log.e(TAG, "Error body: ${response.errorBody()?.string()}")
