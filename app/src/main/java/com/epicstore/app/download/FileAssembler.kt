@@ -29,7 +29,9 @@ class FileAssembler(private val baseDir: File) {
             
             for (part in fileManifest.chunkParts) {
                 val partGuidStr = part.getGuidStr()
-                val chunkInfo = chunkMap[partGuidStr] ?: run {
+                val chunkInfo = chunkMap[partGuidStr]
+                
+                if (chunkInfo == null) {
                     Log.w(TAG, "Chunk not found for GUID: $partGuidStr")
                     continue
                 }
