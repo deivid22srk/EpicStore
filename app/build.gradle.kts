@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp") version "1.9.20-1.0.14"
 }
 
 android {
@@ -67,4 +68,11 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    
+    val room_version = "2.6.1"
+    implementation("androidx.room:room-runtime:$room_version")
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")
+    
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }

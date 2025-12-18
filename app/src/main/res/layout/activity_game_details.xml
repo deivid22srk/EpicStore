@@ -24,7 +24,6 @@
             app:collapsedTitleTextAppearance="@style/TextAppearance.Material3.TitleLarge"
             app:expandedTitleTextAppearance="@style/TextAppearance.Material3.HeadlineMedium">
 
-            <!-- Game Image -->
             <com.google.android.material.imageview.ShapeableImageView
                 android:id="@+id/gameImage"
                 android:layout_width="match_parent"
@@ -35,7 +34,6 @@
                 app:layout_collapseMode="parallax"
                 app:layout_collapseParallaxMultiplier="0.7" />
 
-            <!-- Gradient overlay -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="120dp"
@@ -66,7 +64,6 @@
             android:orientation="vertical"
             android:padding="24dp">
 
-            <!-- Game Title -->
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/gameTitle"
                 android:layout_width="match_parent"
@@ -77,7 +74,6 @@
                 android:layout_marginBottom="8dp"
                 tools:text="Fortnite" />
 
-            <!-- App Name -->
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/gameAppName"
                 android:layout_width="match_parent"
@@ -88,7 +84,6 @@
                 android:layout_marginBottom="4dp"
                 tools:text="App: fortnite" />
 
-            <!-- Namespace -->
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/gameNamespace"
                 android:layout_width="match_parent"
@@ -99,7 +94,6 @@
                 android:layout_marginBottom="24dp"
                 tools:text="Namespace: fn" />
 
-            <!-- Info Card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -121,7 +115,6 @@
                         android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="16dp" />
 
-                    <!-- Platform -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -146,11 +139,11 @@
 
                     </LinearLayout>
 
-                    <!-- Type -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal">
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="12dp">
 
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
@@ -170,11 +163,116 @@
 
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Tamanho"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <com.google.android.material.progressindicator.CircularProgressIndicator
+                            android:id="@+id/loadingIndicator"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:indeterminate="true"
+                            android:visibility="gone"
+                            style="@style/Widget.Material3.CircularProgressIndicator" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/sizeValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Carregando..."
+                            android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textStyle="bold"
+                            tools:text="45.2 GB" />
+
+                    </LinearLayout>
+
                 </LinearLayout>
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Download Button -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/downloadProgressCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone"
+                style="@style/Widget.Material3.CardView.Filled"
+                app:cardCornerRadius="20dp"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Download em Andamento"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                        android:textColor="?attr/colorOnPrimaryContainer"
+                        android:layout_marginBottom="16dp" />
+
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/downloadProgressBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:max="100"
+                        app:indicatorColor="?attr/colorPrimary"
+                        app:trackColor="?attr/colorSurfaceVariant"
+                        tools:progress="45" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/downloadProgressText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                            android:textColor="?attr/colorOnPrimaryContainer"
+                            android:textStyle="bold"
+                            tools:text="45%" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/downloadSizeText"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="12dp"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="?attr/colorOnPrimaryContainer"
+                            tools:text="15.5 GB / 34.2 GB" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/downloadSpeedText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="?attr/colorOnPrimaryContainer"
+                        tools:text="5.2 MB/s" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/downloadButton"
                 android:layout_width="match_parent"
@@ -183,15 +281,14 @@
                 android:textSize="16sp"
                 style="@style/Widget.Material3.Button"
                 app:cornerRadius="20dp"
-                app:icon="@drawable/ic_arrow_forward"
-                app:iconGravity="end"
+                app:icon="@drawable/ic_download"
+                app:iconGravity="start"
                 app:iconSize="24dp" />
 
         </LinearLayout>
 
     </androidx.core.widget.NestedScrollView>
 
-    <!-- Back Button (Floating) -->
     <ImageView
         android:id="@+id/backButton"
         android:layout_width="0dp"

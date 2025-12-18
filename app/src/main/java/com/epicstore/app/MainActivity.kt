@@ -269,6 +269,10 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return try {
             when (item.itemId) {
+                R.id.action_downloads -> {
+                    startActivity(Intent(this, DownloadsActivity::class.java))
+                    true
+                }
                 R.id.action_logout -> {
                     authManager.clearAuthData()
                     gamesAdapter.submitList(emptyList())

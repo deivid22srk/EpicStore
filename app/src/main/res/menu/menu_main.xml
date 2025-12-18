@@ -3,6 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     
     <item
+        android:id="@+id/action_downloads"
+        android:title="Downloads"
+        android:icon="@drawable/ic_download"
+        app:showAsAction="ifRoom" />
+    
+    <item
         android:id="@+id/action_refresh"
         android:title="@string/action_refresh"
         android:icon="@drawable/ic_refresh"
