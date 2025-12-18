@@ -20,6 +20,7 @@ class EpicAuthManager(private val context: Context) {
         private const val TAG = "EpicAuthManager"
         
         private const val SWITCH_TOKEN = "OThmN2U0MmMyZTNhNGY4NmE3NGViNDNmYmI0MWVkMzk6MGEyNDQ5YTItMDAxYS00NTFlLWFmZWMtM2U4MTI5MDFjNGQ3"
+        private const val ANDROID_TOKEN = "M2Y2OWU1NmM3NjQ5NDkyYzhjYzI5ZjFhZjA4YThhMTI6YjUxZWU5Y2IxMjIzNGY1MGE2OWVmYTY3ZWY1MzgxMmU="
         private const val LAUNCHER_TOKEN = "MzRhMDJjZjhmNDQxNGUyOWIxNTkyMTg3NmRhMzZmOWE6ZGFhZmJjY2M3Mzc3NDUwMzlkZmZlNTNkOTRmYzc2Y2Y="
         
         private const val OAUTH_BASE_URL = "https://account-public-service-prod03.ol.epicgames.com/"
@@ -145,9 +146,9 @@ class EpicAuthManager(private val context: Context) {
             val exchangeCode = exchangeResponse.body()!!.code
             Log.d(TAG, "Exchange code obtained")
             
-            Log.d(TAG, "Exchanging to Launcher token...")
+            Log.d(TAG, "Exchanging to Android token...")
             val tokenResponse = authApi.exchangeCode(
-                authorization = "basic $LAUNCHER_TOKEN",
+                authorization = "basic $ANDROID_TOKEN",
                 grantType = "exchange_code",
                 exchangeCode = exchangeCode
             )
@@ -156,7 +157,7 @@ class EpicAuthManager(private val context: Context) {
                 return Result.failure(Exception("Failed to exchange token: ${tokenResponse.code()}"))
             }
             
-            Log.d(TAG, "Launcher token obtained")
+            Log.d(TAG, "Android token obtained")
             Result.success(tokenResponse.body()!!)
             
         } catch (e: Exception) {
@@ -197,7 +198,7 @@ class EpicAuthManager(private val context: Context) {
         return try {
             Log.d(TAG, "Logging in with device auth...")
             val response = authApi.deviceAuthLogin(
-                authorization = "basic $LAUNCHER_TOKEN",
+                authorization = "basic $ANDROID_TOKEN",
                 grantType = "device_auth",
                 accountId = accountId,
                 deviceId = deviceId,
@@ -216,6 +217,51 @@ class EpicAuthManager(private val context: Context) {
             
         } catch (e: Exception) {
             Log.e(TAG, "Error during device auth login", e)
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getLauncherToken(): Result<String> {
+        return try {
+            val currentToken = getAccessToken()
+            if (currentToken == null) {
+                val loginResult = deviceAuthLogin()
+                if (loginResult.isFailure) {
+                    return Result.failure(Exception("Failed to login"))
+                }
+            }
+            
+            val token = getAccessToken() ?: return Result.failure(Exception("No token"))
+            
+            Log.d(TAG, "Getting exchange code for Launcher...")
+            val exchangeResponse = authApi.getExchangeCode(
+                authorization = "bearer $token"
+            )
+            
+            if (!exchangeResponse.isSuccessful || exchangeResponse.body() == null) {
+                return Result.failure(Exception("Failed to get exchange code: ${exchangeResponse.code()}"))
+            }
+            
+            val exchangeCode = exchangeResponse.body()!!.code
+            Log.d(TAG, "Exchanging to Launcher token...")
+            
+            val tokenResponse = authApi.exchangeCode(
+                authorization = "basic $LAUNCHER_TOKEN",
+                grantType = "exchange_code",
+                exchangeCode = exchangeCode
+            )
+            
+            if (!tokenResponse.isSuccessful || tokenResponse.body() == null) {
+                return Result.failure(Exception("Failed to exchange to Launcher token: ${tokenResponse.code()}"))
+            }
+            
+            val launcherToken = tokenResponse.body()!!.accessToken
+            Log.d(TAG, "Launcher token obtained successfully")
+            
+            Result.success(launcherToken)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting Launcher token", e)
             Result.failure(e)
         }
     }

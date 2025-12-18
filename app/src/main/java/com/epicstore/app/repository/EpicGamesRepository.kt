@@ -45,21 +45,19 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
     private val gamesApi = retrofit.create(EpicGamesApi::class.java)
     
     suspend fun getLibraryGames(): Result<List<Game>> {
-        val token = authManager.getAccessToken()
-        
-        if (token == null) {
-            Log.e(TAG, "No access token available")
-            val loginResult = authManager.deviceAuthLogin()
-            if (loginResult.isFailure) {
-                return Result.failure(Exception("Not logged in"))
-            }
-        }
-        
         return try {
-            val currentToken = authManager.getAccessToken() ?: return Result.failure(Exception("No token"))
+            Log.d(TAG, "Getting Launcher token for library access...")
+            val tokenResult = authManager.getLauncherToken()
+            
+            if (tokenResult.isFailure) {
+                Log.e(TAG, "Failed to get Launcher token")
+                return Result.failure(Exception("Failed to get Launcher token"))
+            }
+            
+            val launcherToken = tokenResult.getOrNull() ?: return Result.failure(Exception("No launcher token"))
             
             Log.d(TAG, "Fetching library games...")
-            val response = gamesApi.getLibraryGames("bearer $currentToken")
+            val response = gamesApi.getLibraryGames("bearer $launcherToken")
             
             if (response.isSuccessful && response.body() != null) {
                 val games = response.body()!!.records ?: emptyList()
