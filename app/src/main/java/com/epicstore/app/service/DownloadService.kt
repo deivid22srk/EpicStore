@@ -143,16 +143,26 @@ class DownloadService : Service() {
                 return
             }
             
-            val manifestUri = elements[0].manifests?.firstOrNull()?.uri
-            if (manifestUri == null) {
-                Log.e(TAG, "No manifest URI found")
-                updateNotification(gameName, 0, "Erro: URI do manifest não encontrada")
+            val manifestInfo = elements[0].manifests?.firstOrNull()
+            if (manifestInfo == null) {
+                Log.e(TAG, "No manifest info found")
+                updateNotification(gameName, 0, "Erro: Manifest não encontrado")
                 stopSelf()
                 return
             }
             
-            Log.d(TAG, "Manifest URI: $manifestUri")
-            val baseUrl = manifestUri.substringBeforeLast('/')
+            var manifestUri = manifestInfo.uri
+            val queryParams = manifestInfo.queryParams
+            
+            if (!queryParams.isNullOrEmpty()) {
+                val params = queryParams.joinToString("&") { "${it.name}=${it.value}" }
+                manifestUri = "$manifestUri?$params"
+                Log.d(TAG, "Manifest URI with auth params: $manifestUri")
+            } else {
+                Log.d(TAG, "Manifest URI (no query params): $manifestUri")
+            }
+            
+            val baseUrl = manifestInfo.uri.substringBeforeLast('/')
             
             updateNotification(gameName, 10, "Baixando arquivo manifest...")
             
@@ -164,6 +174,8 @@ class DownloadService : Service() {
                     
                 val response = okHttpClient.newCall(request).execute()
                 if (!response.isSuccessful) {
+                    Log.e(TAG, "Manifest download failed with status ${response.code}")
+                    Log.e(TAG, "URL attempted: $manifestUri")
                     throw Exception("Failed to download manifest file: ${response.code}")
                 }
                 response.body?.bytes() ?: throw Exception("Empty manifest response")

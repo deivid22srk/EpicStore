@@ -2,9 +2,11 @@
 
 ## 📥 Download
 
-**Link do Gofile:** https://gofile.io/d/F6X3VF
+**Link do Gofile:** https://gofile.io/d/sRJxhh
 
-**Arquivo:** `EpicStore-Complete.zip` (584 KB)
+**Arquivo:** `EpicStore-Complete-Fixed.zip` (2.1 MB)
+
+**ÚLTIMA ATUALIZAÇÃO:** 18/12/2025 - Build corrigido ✅
 
 ---
 
