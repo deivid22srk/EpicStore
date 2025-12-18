@@ -19,6 +19,7 @@ import com.epicstore.app.model.DownloadState
 import com.epicstore.app.model.DownloadStatus
 import com.epicstore.app.network.EpicGamesApi
 import kotlinx.coroutines.*
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import retrofit2.Retrofit
@@ -63,9 +64,10 @@ class DownloadService : Service() {
                     .build()
                 chain.proceed(request)
             }
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
     
@@ -112,15 +114,18 @@ class DownloadService : Service() {
             
             updateNotification(gameName, 0, "Obtendo informações do jogo...")
             
-            val tokenResult = authManager.getLauncherToken()
-            if (tokenResult.isFailure) {
-                Log.e(TAG, "Failed to get launcher token")
-                saveDownloadError(appName, gameName, namespace, catalogItemId, "Falha na autenticação")
-                stopSelf()
-                return
+            val token = retryWithExponentialBackoff(
+                maxAttempts = 3,
+                initialDelayMs = 1000,
+                maxDelayMs = 10000,
+                operation = "obter token de autenticação"
+            ) {
+                val tokenResult = authManager.getLauncherToken()
+                if (tokenResult.isFailure) {
+                    throw Exception("Failed to get launcher token: ${tokenResult.exceptionOrNull()?.message}")
+                }
+                tokenResult.getOrNull()!!
             }
-            
-            val token = tokenResult.getOrNull()!!
             
             val launcherRetrofit = Retrofit.Builder()
                 .baseUrl("https://launcher-public-service-prod06.ol.epicgames.com/")
@@ -133,20 +138,28 @@ class DownloadService : Service() {
             Log.d(TAG, "Fetching manifest info...")
             updateNotification(gameName, 5, "Obtendo manifest...")
             
-            val manifestResponse = manifestApi.getGameManifest(
-                "bearer $token",
-                "Windows",
-                namespace,
-                catalogItemId,
-                appName,
-                "Live"
-            )
-            
-            if (!manifestResponse.isSuccessful || manifestResponse.body() == null) {
-                Log.e(TAG, "Failed to get manifest: ${manifestResponse.code()}")
-                saveDownloadError(appName, gameName, namespace, catalogItemId, "Falha ao obter manifest")
-                stopSelf()
-                return
+            val manifestResponse = retryWithExponentialBackoff(
+                maxAttempts = 5,
+                initialDelayMs = 2000,
+                maxDelayMs = 30000,
+                operation = "buscar informações do manifest"
+            ) {
+                withContext(Dispatchers.IO) {
+                    val response = manifestApi.getGameManifest(
+                        "bearer $token",
+                        "Windows",
+                        namespace,
+                        catalogItemId,
+                        appName,
+                        "Live"
+                    )
+                    
+                    if (!response.isSuccessful || response.body() == null) {
+                        throw Exception("Failed to get manifest: ${response.code()} - ${response.message()}")
+                    }
+                    
+                    response
+                }
             }
             
             val elements = manifestResponse.body()!!.elements
@@ -177,16 +190,23 @@ class DownloadService : Service() {
             
             updateNotification(gameName, 10, "Baixando manifest...")
             
-            val manifestBytes = withContext(Dispatchers.IO) {
-                val request = Request.Builder()
-                    .url(manifestUri)
-                    .build()
-                    
-                val response = okHttpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download manifest: ${response.code}")
+            val manifestBytes = retryWithExponentialBackoff(
+                maxAttempts = 5,
+                initialDelayMs = 2000,
+                maxDelayMs = 30000,
+                operation = "baixar arquivo manifest"
+            ) {
+                withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url(manifestUri)
+                        .build()
+                        
+                    val response = okHttpClient.newCall(request).execute()
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to download manifest: ${response.code} - ${response.message}")
+                    }
+                    response.body?.bytes() ?: throw Exception("Empty manifest")
                 }
-                response.body?.bytes() ?: throw Exception("Empty manifest")
             }
             
             val manifest = ManifestParser.parse(manifestBytes)
@@ -273,7 +293,16 @@ class DownloadService : Service() {
                             if (chunkInfo != null) {
                                 val chunkUrl = "$baseUrl/${chunkInfo.getPath()}"
                                 
-                                val chunk = chunkDownloader.downloadAndDecodeChunk(chunkUrl)
+                                val chunk = retryWithExponentialBackoff(
+                                    maxAttempts = 3,
+                                    initialDelayMs = 500,
+                                    maxDelayMs = 5000,
+                                    operation = "baixar chunk $chunkGuid"
+                                ) {
+                                    withContext(Dispatchers.IO) {
+                                        chunkDownloader.downloadAndDecodeChunk(chunkUrl)
+                                    }
+                                }
                                 chunkCache[chunkGuid] = chunk
                                 
                                 downloadedChunks++
@@ -439,5 +468,34 @@ class DownloadService : Service() {
         isRunning = false
         currentDownloadJob?.cancel()
         serviceScope.cancel()
+    }
+    
+    private suspend fun <T> retryWithExponentialBackoff(
+        maxAttempts: Int,
+        initialDelayMs: Long,
+        maxDelayMs: Long,
+        factor: Double = 2.0,
+        operation: String,
+        block: suspend () -> T
+    ): T {
+        var currentDelay = initialDelayMs
+        var lastException: Exception? = null
+        
+        repeat(maxAttempts) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < maxAttempts - 1) {
+                    Log.w(TAG, "Tentativa ${attempt + 1}/$maxAttempts falhou ao $operation: ${e.message}. Tentando novamente em ${currentDelay}ms...")
+                    delay(currentDelay)
+                    currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelayMs)
+                } else {
+                    Log.e(TAG, "Todas as $maxAttempts tentativas falharam ao $operation", e)
+                }
+            }
+        }
+        
+        throw lastException ?: Exception("Operação falhou: $operation")
     }
 }

@@ -14,22 +14,25 @@ class ChunkDownloader(private val okHttpClient: OkHttpClient) {
     }
     
     fun downloadAndDecodeChunk(url: String): DecodedChunk {
-        Log.d(TAG, "Downloading chunk from: $url")
-        
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
-            .build()
-        
-        val response = okHttpClient.newCall(request).execute()
-        
-        if (!response.isSuccessful) {
-            throw Exception("Failed to download chunk: ${response.code}")
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit")
+                .build()
+            
+            val response = okHttpClient.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                throw Exception("Failed to download chunk: ${response.code} - ${response.message}")
+            }
+            
+            val chunkBytes = response.body?.bytes() ?: throw Exception("Empty chunk response")
+            
+            return decodeChunk(chunkBytes)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading chunk from $url", e)
+            throw e
         }
-        
-        val chunkBytes = response.body?.bytes() ?: throw Exception("Empty chunk response")
-        
-        return decodeChunk(chunkBytes)
     }
     
     private fun decodeChunk(data: ByteArray): DecodedChunk {

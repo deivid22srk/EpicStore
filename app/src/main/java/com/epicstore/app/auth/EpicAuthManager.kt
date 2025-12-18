@@ -223,15 +223,18 @@ class EpicAuthManager(private val context: Context) {
     
     suspend fun getLauncherToken(): Result<String> {
         return try {
+            Log.d(TAG, "Getting Launcher token for library access...")
             val currentToken = getAccessToken()
             if (currentToken == null) {
+                Log.d(TAG, "No current token, performing device auth login...")
                 val loginResult = deviceAuthLogin()
                 if (loginResult.isFailure) {
-                    return Result.failure(Exception("Failed to login"))
+                    Log.e(TAG, "Device auth login failed", loginResult.exceptionOrNull())
+                    return Result.failure(Exception("Failed to login: ${loginResult.exceptionOrNull()?.message}"))
                 }
             }
             
-            val token = getAccessToken() ?: return Result.failure(Exception("No token"))
+            val token = getAccessToken() ?: return Result.failure(Exception("No token available after login"))
             
             Log.d(TAG, "Getting exchange code for Launcher...")
             val exchangeResponse = authApi.getExchangeCode(
@@ -239,7 +242,8 @@ class EpicAuthManager(private val context: Context) {
             )
             
             if (!exchangeResponse.isSuccessful || exchangeResponse.body() == null) {
-                return Result.failure(Exception("Failed to get exchange code: ${exchangeResponse.code()}"))
+                Log.e(TAG, "Failed to get exchange code: ${exchangeResponse.code()} - ${exchangeResponse.message()}")
+                return Result.failure(Exception("Failed to get exchange code: ${exchangeResponse.code()} - ${exchangeResponse.message()}"))
             }
             
             val exchangeCode = exchangeResponse.body()!!.code

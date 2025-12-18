@@ -12,12 +12,21 @@ class ManifestParser {
         private const val HEADER_MAGIC = 0x44BEC00C
         
         fun parse(data: ByteArray): ParsedManifest {
-            val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-            
-            val magic = buffer.int.toUInt()
-            if (magic != HEADER_MAGIC.toUInt()) {
-                throw IllegalArgumentException("Invalid manifest header magic: ${magic.toString(16)}")
-            }
+            try {
+                if (data.isEmpty()) {
+                    throw IllegalArgumentException("Manifest data is empty")
+                }
+                
+                if (data.size < 41) {
+                    throw IllegalArgumentException("Manifest data is too small (${data.size} bytes, expected at least 41)")
+                }
+                
+                val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+                
+                val magic = buffer.int.toUInt()
+                if (magic != HEADER_MAGIC.toUInt()) {
+                    throw IllegalArgumentException("Invalid manifest header magic: ${magic.toString(16)}, expected: ${HEADER_MAGIC.toString(16)}")
+                }
             
             val headerSize = buffer.int
             val sizeUncompressed = buffer.int
@@ -53,6 +62,10 @@ class ManifestParser {
             val customFields = readCustomFields(dataBuffer)
             
             return ParsedManifest(meta, chunkDataList, fileManifestList, customFields)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing manifest", e)
+                throw IllegalArgumentException("Failed to parse manifest: ${e.message}", e)
+            }
         }
         
         private fun decompressZlib(data: ByteArray): ByteArray {
