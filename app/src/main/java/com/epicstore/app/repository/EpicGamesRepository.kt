@@ -1,7 +1,7 @@
 package com.epicstore.app.repository
 
+import android.util.Log
 import com.epicstore.app.auth.EpicAuthManager
-import com.epicstore.app.model.AssetInfo
 import com.epicstore.app.model.Game
 import com.epicstore.app.network.EpicGamesApi
 import okhttp3.OkHttpClient
@@ -13,8 +13,8 @@ import java.util.concurrent.TimeUnit
 class EpicGamesRepository(private val authManager: EpicAuthManager) {
     
     companion object {
-        private const val LIBRARY_BASE_URL = "https://library-service.live.use1a.on.epicgames.com/"
-        private const val CATALOG_BASE_URL = "https://catalog-public-service-prod06.ol.epicgames.com/"
+        private const val TAG = "EpicGamesRepository"
+        private const val LAUNCHER_BASE_URL = "https://launcher-public-service-prod06.ol.epicgames.com/"
     }
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -28,55 +28,42 @@ class EpicGamesRepository(private val authManager: EpicAuthManager) {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
-    private val libraryRetrofit = Retrofit.Builder()
-        .baseUrl(LIBRARY_BASE_URL)
+    private val retrofit = Retrofit.Builder()
+        .baseUrl(LAUNCHER_BASE_URL)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
     
-    private val catalogRetrofit = Retrofit.Builder()
-        .baseUrl(CATALOG_BASE_URL)
-        .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
-    
-    private val libraryApi = libraryRetrofit.create(EpicGamesApi::class.java)
-    private val catalogApi = catalogRetrofit.create(EpicGamesApi::class.java)
+    private val gamesApi = retrofit.create(EpicGamesApi::class.java)
     
     suspend fun getLibraryGames(): Result<List<Game>> {
-        val token = authManager.getAccessToken() ?: return Result.failure(Exception("Not logged in"))
+        val token = authManager.getAccessToken()
+        
+        if (token == null) {
+            Log.e(TAG, "No access token available")
+            val loginResult = authManager.deviceAuthLogin()
+            if (loginResult.isFailure) {
+                return Result.failure(Exception("Not logged in"))
+            }
+        }
         
         return try {
-            val response = libraryApi.getLibraryGames("Bearer $token")
+            val currentToken = authManager.getAccessToken() ?: return Result.failure(Exception("No token"))
+            
+            Log.d(TAG, "Fetching library games...")
+            val response = gamesApi.getLibraryGames("bearer $currentToken")
             
             if (response.isSuccessful && response.body() != null) {
                 val games = response.body()!!.records ?: emptyList()
+                Log.d(TAG, "Retrieved ${games.size} games")
                 Result.success(games)
             } else {
-                Result.failure(Exception("Failed to get library: ${response.code()} - ${response.message()}"))
+                Log.e(TAG, "Failed to get library: ${response.code()} - ${response.message()}")
+                Log.e(TAG, "Error body: ${response.errorBody()?.string()}")
+                Result.failure(Exception("Failed to get library: ${response.code()}"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-    
-    suspend fun getCatalogInfo(namespace: String, itemId: String): Result<AssetInfo?> {
-        val token = authManager.getAccessToken() ?: return Result.failure(Exception("Not logged in"))
-        
-        return try {
-            val response = catalogApi.getCatalogInfo(
-                authorization = "Bearer $token",
-                namespace = namespace,
-                itemIds = itemId
-            )
-            
-            if (response.isSuccessful && response.body() != null) {
-                val info = response.body()!![itemId]
-                Result.success(info)
-            } else {
-                Result.failure(Exception("Failed to get catalog info: ${response.code()}"))
-            }
-        } catch (e: Exception) {
+            Log.e(TAG, "Exception getting library", e)
             Result.failure(e)
         }
     }

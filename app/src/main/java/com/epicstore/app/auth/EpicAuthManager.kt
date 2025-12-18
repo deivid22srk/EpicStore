@@ -3,10 +3,11 @@ package com.epicstore.app.auth
 import android.content.Context
 import android.util.Base64
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.epicstore.app.model.EpicAuthResponse
+import com.epicstore.app.model.DeviceCodeResponse
+import com.epicstore.app.model.DeviceAuthResponse
 import com.epicstore.app.network.EpicAuthApi
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -17,37 +18,23 @@ class EpicAuthManager(private val context: Context) {
     
     companion object {
         private const val TAG = "EpicAuthManager"
-        private const val CLIENT_ID = "34a02cf8f4414e29b15921876da36f9a"
-        private const val CLIENT_SECRET = "daafbccc737745039dffe53d94fc76cf"
-        private const val AUTHORIZATION_BASE_URL = "https://www.epicgames.com/id/authorize"
+        
+        private const val SWITCH_TOKEN = "OThmN2U0MmMyZTNhNGY4NmE3NGViNDNmYmI0MWVkMzk6MGEyNDQ5YTItMDAxYS00NTFlLWFmZWMtM2U4MTI5MDFjNGQ3"
+        private const val ANDROID_TOKEN = "M2Y2OWU1NmM3NjQ5NDkyYzhjYzI5ZjFhZjA4YThhMTI6YjUxZWU5Y2IxMjIzNGY1MGE2OWVmYTY3ZWY1MzgxMmU="
+        
         private const val OAUTH_BASE_URL = "https://account-public-service-prod03.ol.epicgames.com/"
-        private const val REDIRECT_URI = "epicstore://callback"
         
         private const val PREFS_NAME = "epic_auth_prefs"
+        private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_ACCOUNT_ID = "account_id"
+        private const val KEY_SECRET = "secret"
+        private const val KEY_DISPLAY_NAME = "display_name"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
-        private const val KEY_ACCOUNT_ID = "account_id"
         private const val KEY_EXPIRES_AT = "expires_at"
     }
     
-    private val sharedPreferences by lazy {
-        try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            
-            EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating EncryptedSharedPreferences, using regular SharedPreferences", e)
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        }
-    }
+    private val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
@@ -68,119 +55,204 @@ class EpicAuthManager(private val context: Context) {
     
     private val authApi = retrofit.create(EpicAuthApi::class.java)
     
-    fun getAuthorizationUrl(): String {
-        return "$AUTHORIZATION_BASE_URL?client_id=$CLIENT_ID&response_type=code&redirect_uri=$REDIRECT_URI"
-    }
-    
-    private fun getBasicAuthHeader(): String {
-        val credentials = "$CLIENT_ID:$CLIENT_SECRET"
-        val encodedCredentials = Base64.encodeToString(credentials.toByteArray(), Base64.NO_WRAP)
-        return "Basic $encodedCredentials"
-    }
-    
-    suspend fun exchangeCodeForToken(code: String): Result<EpicAuthResponse> {
+    suspend fun startDeviceAuthFlow(): Result<DeviceCodeResponse> {
         return try {
-            val response = authApi.getAccessToken(
-                authorization = getBasicAuthHeader(),
-                grantType = "authorization_code",
-                code = code,
-                redirectUri = REDIRECT_URI
+            Log.d(TAG, "Getting client token...")
+            val clientTokenResponse = authApi.getClientToken(
+                authorization = "basic $SWITCH_TOKEN",
+                grantType = "client_credentials"
             )
             
-            if (response.isSuccessful && response.body() != null) {
-                val authResponse = response.body()!!
-                saveAuthData(authResponse)
-                Result.success(authResponse)
-            } else {
-                Result.failure(Exception("Failed to get access token: ${response.code()} - ${response.message()}"))
+            if (!clientTokenResponse.isSuccessful || clientTokenResponse.body() == null) {
+                return Result.failure(Exception("Failed to get client token: ${clientTokenResponse.code()}"))
             }
+            
+            val clientToken = clientTokenResponse.body()!!.accessToken
+            Log.d(TAG, "Client token obtained")
+            
+            Log.d(TAG, "Creating device code...")
+            val deviceCodeResponse = authApi.createDeviceCode(
+                authorization = "bearer $clientToken"
+            )
+            
+            if (!deviceCodeResponse.isSuccessful || deviceCodeResponse.body() == null) {
+                return Result.failure(Exception("Failed to create device code: ${deviceCodeResponse.code()}"))
+            }
+            
+            Log.d(TAG, "Device code created")
+            Result.success(deviceCodeResponse.body()!!)
+            
         } catch (e: Exception) {
-            Log.e(TAG, "Error exchanging code for token", e)
+            Log.e(TAG, "Error starting device auth flow", e)
             Result.failure(e)
         }
     }
     
-    suspend fun refreshToken(): Result<EpicAuthResponse> {
-        val refreshToken = getRefreshToken() ?: return Result.failure(Exception("No refresh token available"))
+    suspend fun pollForDeviceAuthorization(deviceCode: String, maxAttempts: Int = 30): Result<EpicAuthResponse> {
+        repeat(maxAttempts) { attempt ->
+            try {
+                Log.d(TAG, "Polling for authorization... attempt ${attempt + 1}/$maxAttempts")
+                
+                val response = authApi.getDeviceToken(
+                    authorization = "basic $SWITCH_TOKEN",
+                    grantType = "device_code",
+                    deviceCode = deviceCode
+                )
+                
+                if (response.isSuccessful && response.body() != null) {
+                    Log.d(TAG, "Authorization successful!")
+                    return Result.success(response.body()!!)
+                }
+                
+                val errorBody = response.errorBody()?.string()
+                Log.d(TAG, "Polling response: ${response.code()} - $errorBody")
+                
+                if (errorBody?.contains("authorization_pending") == true || 
+                    errorBody?.contains("not_found") == true) {
+                    delay(10000)
+                } else {
+                    return Result.failure(Exception("Authorization failed: ${response.code()}"))
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during polling", e)
+                delay(10000)
+            }
+        }
+        
+        return Result.failure(Exception("Timeout waiting for authorization"))
+    }
+    
+    suspend fun exchangeToAndroidToken(switchAccessToken: String): Result<EpicAuthResponse> {
+        return try {
+            Log.d(TAG, "Getting exchange code...")
+            val exchangeResponse = authApi.getExchangeCode(
+                authorization = "bearer $switchAccessToken"
+            )
+            
+            if (!exchangeResponse.isSuccessful || exchangeResponse.body() == null) {
+                return Result.failure(Exception("Failed to get exchange code: ${exchangeResponse.code()}"))
+            }
+            
+            val exchangeCode = exchangeResponse.body()!!.code
+            Log.d(TAG, "Exchange code obtained")
+            
+            Log.d(TAG, "Exchanging to Android token...")
+            val tokenResponse = authApi.exchangeCode(
+                authorization = "basic $ANDROID_TOKEN",
+                grantType = "exchange_code",
+                exchangeCode = exchangeCode
+            )
+            
+            if (!tokenResponse.isSuccessful || tokenResponse.body() == null) {
+                return Result.failure(Exception("Failed to exchange token: ${tokenResponse.code()}"))
+            }
+            
+            Log.d(TAG, "Android token obtained")
+            Result.success(tokenResponse.body()!!)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error exchanging to Android token", e)
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun createDeviceAuth(accessToken: String, accountId: String): Result<DeviceAuthResponse> {
+        return try {
+            Log.d(TAG, "Creating device auth...")
+            val response = authApi.createDeviceAuth(
+                authorization = "bearer $accessToken",
+                accountId = accountId
+            )
+            
+            if (!response.isSuccessful || response.body() == null) {
+                return Result.failure(Exception("Failed to create device auth: ${response.code()}"))
+            }
+            
+            val deviceAuth = response.body()!!
+            saveDeviceAuth(deviceAuth, accountId)
+            Log.d(TAG, "Device auth created and saved")
+            
+            Result.success(deviceAuth)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating device auth", e)
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun deviceAuthLogin(): Result<EpicAuthResponse> {
+        val deviceId = getDeviceId() ?: return Result.failure(Exception("No device auth saved"))
+        val accountId = getAccountId() ?: return Result.failure(Exception("No account ID saved"))
+        val secret = getSecret() ?: return Result.failure(Exception("No secret saved"))
         
         return try {
-            val response = authApi.refreshAccessToken(
-                authorization = getBasicAuthHeader(),
-                refreshToken = refreshToken
+            Log.d(TAG, "Logging in with device auth...")
+            val response = authApi.deviceAuthLogin(
+                authorization = "basic $ANDROID_TOKEN",
+                grantType = "device_auth",
+                accountId = accountId,
+                deviceId = deviceId,
+                secret = secret
             )
             
-            if (response.isSuccessful && response.body() != null) {
-                val authResponse = response.body()!!
-                saveAuthData(authResponse)
-                Result.success(authResponse)
-            } else {
-                clearAuthData()
-                Result.failure(Exception("Failed to refresh token: ${response.code()}"))
+            if (!response.isSuccessful || response.body() == null) {
+                return Result.failure(Exception("Device auth login failed: ${response.code()}"))
             }
+            
+            val authResponse = response.body()!!
+            saveAccessToken(authResponse)
+            Log.d(TAG, "Device auth login successful")
+            
+            Result.success(authResponse)
+            
         } catch (e: Exception) {
-            Log.e(TAG, "Error refreshing token", e)
-            clearAuthData()
+            Log.e(TAG, "Error during device auth login", e)
             Result.failure(e)
         }
     }
     
-    private fun saveAuthData(authResponse: EpicAuthResponse) {
-        try {
-            sharedPreferences.edit().apply {
-                putString(KEY_ACCESS_TOKEN, authResponse.accessToken)
-                authResponse.refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
-                authResponse.accountId?.let { putString(KEY_ACCOUNT_ID, it) }
-                putLong(KEY_EXPIRES_AT, System.currentTimeMillis() + (authResponse.expiresIn * 1000L))
-                apply()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving auth data", e)
+    private fun saveDeviceAuth(deviceAuth: DeviceAuthResponse, accountId: String) {
+        sharedPreferences.edit().apply {
+            putString(KEY_DEVICE_ID, deviceAuth.deviceId)
+            putString(KEY_ACCOUNT_ID, accountId)
+            putString(KEY_SECRET, deviceAuth.secret)
+            apply()
         }
     }
     
-    fun getAccessToken(): String? {
-        return try {
-            sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting access token", e)
-            null
+    private fun saveAccessToken(authResponse: EpicAuthResponse) {
+        sharedPreferences.edit().apply {
+            putString(KEY_ACCESS_TOKEN, authResponse.accessToken)
+            authResponse.refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
+            authResponse.accountId?.let { putString(KEY_ACCOUNT_ID, it) }
+            authResponse.displayName?.let { putString(KEY_DISPLAY_NAME, it) }
+            putLong(KEY_EXPIRES_AT, System.currentTimeMillis() + (authResponse.expiresIn * 1000L))
+            apply()
         }
     }
     
-    private fun getRefreshToken(): String? {
-        return try {
-            sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting refresh token", e)
-            null
-        }
-    }
+    fun getAccessToken(): String? = sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
     
-    fun getAccountId(): String? {
-        return try {
-            sharedPreferences.getString(KEY_ACCOUNT_ID, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting account ID", e)
-            null
-        }
+    private fun getDeviceId(): String? = sharedPreferences.getString(KEY_DEVICE_ID, null)
+    
+    fun getAccountId(): String? = sharedPreferences.getString(KEY_ACCOUNT_ID, null)
+    
+    private fun getSecret(): String? = sharedPreferences.getString(KEY_SECRET, null)
+    
+    fun getDisplayName(): String? = sharedPreferences.getString(KEY_DISPLAY_NAME, null)
+    
+    fun hasDeviceAuth(): Boolean {
+        return getDeviceId() != null && getAccountId() != null && getSecret() != null
     }
     
     fun isLoggedIn(): Boolean {
-        return try {
-            val token = getAccessToken()
-            val expiresAt = sharedPreferences.getLong(KEY_EXPIRES_AT, 0)
-            token != null && System.currentTimeMillis() < expiresAt
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking login status", e)
-            false
-        }
+        val token = getAccessToken()
+        val expiresAt = sharedPreferences.getLong(KEY_EXPIRES_AT, 0)
+        return token != null && System.currentTimeMillis() < expiresAt
     }
     
     fun clearAuthData() {
-        try {
-            sharedPreferences.edit().clear().apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error clearing auth data", e)
-        }
+        sharedPreferences.edit().clear().apply()
     }
 }

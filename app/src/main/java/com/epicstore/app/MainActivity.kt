@@ -43,23 +43,24 @@ class MainActivity : AppCompatActivity() {
             setupObservers()
             setupListeners()
             
-            if (authManager.isLoggedIn()) {
-                showLibrary()
-                viewModel.loadGames(this)
+            if (authManager.hasDeviceAuth()) {
+                lifecycleScope.launch {
+                    val result = authManager.deviceAuthLogin()
+                    if (result.isSuccess) {
+                        showLibrary()
+                        viewModel.loadGames(this@MainActivity)
+                    } else {
+                        showLoginScreen()
+                    }
+                }
             } else {
                 showLoginScreen()
             }
             
-            handleAuthCallback(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             finish()
         }
-    }
-    
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleAuthCallback(intent)
     }
     
     private fun setupRecyclerView() {
@@ -106,7 +107,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         try {
             binding.loginButton.setOnClickListener {
-                launchBrowserForAuth()
+                startDeviceAuthFlow()
             }
             
             binding.swipeRefresh.setOnRefreshListener {
@@ -121,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         try {
             binding.loginLayout.visibility = View.VISIBLE
             binding.contentLayout.visibility = View.GONE
+            invalidateOptionsMenu()
         } catch (e: Exception) {
             Log.e(TAG, "Error showing login screen", e)
         }
@@ -130,80 +132,128 @@ class MainActivity : AppCompatActivity() {
         try {
             binding.loginLayout.visibility = View.GONE
             binding.contentLayout.visibility = View.VISIBLE
+            invalidateOptionsMenu()
         } catch (e: Exception) {
             Log.e(TAG, "Error showing library", e)
         }
     }
     
-    private fun launchBrowserForAuth() {
+    private fun startDeviceAuthFlow() {
+        lifecycleScope.launch {
+            try {
+                binding.progressBar.visibility = View.VISIBLE
+                binding.loginButton.isEnabled = false
+                
+                val deviceCodeResult = authManager.startDeviceAuthFlow()
+                
+                if (deviceCodeResult.isFailure) {
+                    binding.progressBar.visibility = View.GONE
+                    binding.loginButton.isEnabled = true
+                    Snackbar.make(
+                        binding.root,
+                        "Erro ao iniciar login: ${deviceCodeResult.exceptionOrNull()?.message}",
+                        Snackbar.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+                
+                val deviceCode = deviceCodeResult.getOrNull()!!
+                
+                openBrowserForAuth(deviceCode.verificationUriComplete)
+                
+                Snackbar.make(
+                    binding.root,
+                    "Aguardando login no navegador...",
+                    Snackbar.LENGTH_LONG
+                ).show()
+                
+                val authResult = authManager.pollForDeviceAuthorization(deviceCode.deviceCode)
+                
+                if (authResult.isFailure) {
+                    binding.progressBar.visibility = View.GONE
+                    binding.loginButton.isEnabled = true
+                    Snackbar.make(
+                        binding.root,
+                        "Login cancelado ou expirou",
+                        Snackbar.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+                
+                val switchAuth = authResult.getOrNull()!!
+                
+                val androidTokenResult = authManager.exchangeToAndroidToken(switchAuth.accessToken)
+                
+                if (androidTokenResult.isFailure) {
+                    binding.progressBar.visibility = View.GONE
+                    binding.loginButton.isEnabled = true
+                    Snackbar.make(
+                        binding.root,
+                        "Erro ao trocar token",
+                        Snackbar.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+                
+                val androidAuth = androidTokenResult.getOrNull()!!
+                
+                val deviceAuthResult = authManager.createDeviceAuth(
+                    androidAuth.accessToken,
+                    androidAuth.accountId ?: ""
+                )
+                
+                if (deviceAuthResult.isFailure) {
+                    binding.progressBar.visibility = View.GONE
+                    binding.loginButton.isEnabled = true
+                    Snackbar.make(
+                        binding.root,
+                        "Erro ao criar device auth",
+                        Snackbar.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+                
+                binding.progressBar.visibility = View.GONE
+                binding.loginButton.isEnabled = true
+                
+                showLibrary()
+                viewModel.loadGames(this@MainActivity)
+                
+                Snackbar.make(
+                    binding.root,
+                    "Login realizado com sucesso!",
+                    Snackbar.LENGTH_SHORT
+                ).show()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in device auth flow", e)
+                binding.progressBar.visibility = View.GONE
+                binding.loginButton.isEnabled = true
+                Snackbar.make(
+                    binding.root,
+                    "Erro no login: ${e.message}",
+                    Snackbar.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    
+    private fun openBrowserForAuth(url: String) {
         try {
-            val authUrl = authManager.getAuthorizationUrl()
             val customTabsIntent = CustomTabsIntent.Builder()
                 .setShowTitle(true)
                 .build()
             
-            try {
-                customTabsIntent.launchUrl(this, Uri.parse(authUrl))
-            } catch (e: Exception) {
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-                startActivity(browserIntent)
-            }
+            customTabsIntent.launchUrl(this, Uri.parse(url))
         } catch (e: Exception) {
-            Log.e(TAG, "Error launching browser", e)
-            Snackbar.make(binding.root, "Error opening browser: ${e.message}", Snackbar.LENGTH_LONG).show()
-        }
-    }
-    
-    private fun handleAuthCallback(intent: Intent?) {
-        try {
-            val uri = intent?.data
-            if (uri != null && uri.scheme == "epicstore" && uri.host == "callback") {
-                val code = uri.getQueryParameter("code")
-                if (code != null) {
-                    lifecycleScope.launch {
-                        try {
-                            binding.progressBar.visibility = View.VISIBLE
-                            val result = authManager.exchangeCodeForToken(code)
-                            binding.progressBar.visibility = View.GONE
-                            
-                            if (result.isSuccess) {
-                                showLibrary()
-                                viewModel.loadGames(this@MainActivity)
-                                Snackbar.make(binding.root, R.string.login_success, Snackbar.LENGTH_SHORT).show()
-                            } else {
-                                Snackbar.make(
-                                    binding.root,
-                                    getString(R.string.login_failed, result.exceptionOrNull()?.message),
-                                    Snackbar.LENGTH_LONG
-                                ).show()
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error handling auth callback", e)
-                            binding.progressBar.visibility = View.GONE
-                            Snackbar.make(
-                                binding.root,
-                                "Authentication error: ${e.message}",
-                                Snackbar.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                } else {
-                    val error = uri.getQueryParameter("error")
-                    Snackbar.make(
-                        binding.root,
-                        getString(R.string.auth_error, error ?: "Unknown"),
-                        Snackbar.LENGTH_LONG
-                    ).show()
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in handleAuthCallback", e)
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(browserIntent)
         }
     }
     
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         try {
-            if (authManager.isLoggedIn()) {
+            if (authManager.hasDeviceAuth()) {
                 menuInflater.inflate(R.menu.menu_main, menu)
             }
         } catch (e: Exception) {
@@ -219,12 +269,24 @@ class MainActivity : AppCompatActivity() {
                     authManager.clearAuthData()
                     gamesAdapter.submitList(emptyList())
                     showLoginScreen()
-                    invalidateOptionsMenu()
                     Snackbar.make(binding.root, R.string.logged_out, Snackbar.LENGTH_SHORT).show()
                     true
                 }
                 R.id.action_refresh -> {
-                    viewModel.loadGames(this)
+                    lifecycleScope.launch {
+                        val result = authManager.deviceAuthLogin()
+                        if (result.isSuccess) {
+                            viewModel.loadGames(this@MainActivity)
+                        } else {
+                            Snackbar.make(
+                                binding.root,
+                                "Erro ao atualizar. Faça login novamente.",
+                                Snackbar.LENGTH_LONG
+                            ).show()
+                            authManager.clearAuthData()
+                            showLoginScreen()
+                        }
+                    }
                     true
                 }
                 else -> super.onOptionsItemSelected(item)
