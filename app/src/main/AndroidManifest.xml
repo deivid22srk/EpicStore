@@ -38,16 +38,34 @@
             android:windowSoftInputMode="adjustResize" />
         
         <activity
+            android:name=".MainActivityCompose"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+        
+        <activity
             android:name=".GameDetailsActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:parentActivityName=".MainActivity" />
         
         <activity
+            android:name=".GameDetailsActivityCompose"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:parentActivityName=".MainActivityCompose" />
+        
+        <activity
             android:name=".DownloadsActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:parentActivityName=".MainActivity" />
+        
+        <activity
+            android:name=".DownloadsActivityCompose"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:parentActivityName=".MainActivityCompose" />
         
         <service
             android:name=".service.DownloadService"

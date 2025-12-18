@@ -120,7 +120,7 @@ class PermissionsActivity : AppCompatActivity() {
     }
     
     private fun startMainActivity() {
-        startActivity(Intent(this, MainActivity::class.java))
+        startActivity(Intent(this, MainActivityCompose::class.java))
         finish()
     }
 }
